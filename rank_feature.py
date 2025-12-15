@@ -70,7 +70,7 @@ def generate_features(recall_pkl, click_pkl, query_pkl, articles_df, articles_em
     last_click = click_df.groupby('user_id')['click_timestamp'].max().reset_index(name='last_click_ts')
     sample_df = sample_df.merge(last_click, on='user_id', how='left')
     
-    sample_df = sample_df.merge(last_click, on='user_id', how='left')
+
     
     # 3. Join Article Features
     logger.info("Adding Article Features...")
