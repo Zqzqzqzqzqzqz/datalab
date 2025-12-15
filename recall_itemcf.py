@@ -81,16 +81,18 @@ class ItemCF:
         
         # Taking last K items from history to recommend? 
         # Usually last 5 items.
-        target_hist = user_history[::-1][:5]
+        target_hist = user_history[::-1][:15]
         
-        for item_i, _ in target_hist:
+        for idx, (item_i, _) in enumerate(target_hist):
             if item_i not in self.item_sim_matrix:
                 continue
-                
-            for item_j, w_ij in sorted(self.item_sim_matrix[item_i].items(), key=lambda x:x[1], reverse=True)[:100]:
+            
+            time_weight = np.exp(-0.1 * idx)
+            
+            for item_j, w_ij in sorted(self.item_sim_matrix[item_i].items(), key=lambda x:x[1], reverse=True)[:200]:
                 if item_j in interacted_items:
                     continue
-                rank[item_j] += w_ij
+                rank[item_j] += w_ij * time_weight
                 
         return sorted(rank.items(), key=lambda x: x[1], reverse=True)[:top_k]
 

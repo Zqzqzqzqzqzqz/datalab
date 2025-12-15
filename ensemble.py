@@ -27,6 +27,25 @@ def gen_submission(df, sub_path):
     sub.to_csv(sub_path, index=False)
     logger.info(f"Saved submission to {sub_path}")
 
+def normalize_scores(df, score_col):
+    # Scalar min-max is risky if outlier. 
+    # Rank normalization might be better: df['rank'] / count
+    # But let's stick to min-max per user group? Too slow for pandas?
+    # Global min-max? LambdaRank scores are relative.
+    # Safe bet: Rank Scaling (0 to 1)
+    
+    # Let's use Rank-based averaging (Gauss Rank would be best, but simple Rank is ok)
+    # Or MinMax of the column global? No.
+    # LambdaRank score distribution depends on query.
+    
+    # We will use MIN-MAX normalization over the whole dataset (simple approximation)
+    # OR better: (x - min) / (max - min)
+    _min = df[score_col].min()
+    _max = df[score_col].max()
+    if _max > _min:
+        return (df[score_col] - _min) / (_max - _min)
+    return df[score_col]
+
 def ensemble():
     BASE_DIR = '../user_data/data/online'
     LGB_PATH = os.path.join(BASE_DIR, 'lgb_preds.pkl')
@@ -40,9 +59,10 @@ def ensemble():
     if os.path.exists(LGB_PATH):
         logger.info(f"Loading LightGBM from {LGB_PATH}")
         lgb_df = pd.read_pickle(LGB_PATH)
-        # Rename score
-        lgb_df = lgb_df.rename(columns={'pred_score': 'lgb_score'})
-        preds.append(lgb_df)
+        lgb_df = lgb_df.rename(columns={'pred_score': 'lgb_raw'})
+        # Normalize
+        lgb_df['lgb_score'] = normalize_scores(lgb_df, 'lgb_raw')
+        preds.append(lgb_df[['user_id', 'article_id', 'lgb_score']])
     else:
         logger.warning("LightGBM predictions not found!")
         
@@ -50,8 +70,9 @@ def ensemble():
     if os.path.exists(CAT_PATH):
         logger.info(f"Loading CatBoost from {CAT_PATH}")
         cat_df = pd.read_pickle(CAT_PATH)
-        cat_df = cat_df.rename(columns={'pred_score': 'cat_score'})
-        preds.append(cat_df)
+        cat_df = cat_df.rename(columns={'pred_score': 'cat_raw'})
+        cat_df['cat_score'] = normalize_scores(cat_df, 'cat_raw')
+        preds.append(cat_df[['user_id', 'article_id', 'cat_score']])
     else:
         logger.warning("CatBoost predictions not found!")
         
@@ -59,8 +80,9 @@ def ensemble():
     if os.path.exists(XGB_PATH):
         logger.info(f"Loading XGBoost from {XGB_PATH}")
         xgb_df = pd.read_pickle(XGB_PATH)
-        xgb_df = xgb_df.rename(columns={'pred_score': 'xgb_score'})
-        preds.append(xgb_df)
+        xgb_df = xgb_df.rename(columns={'pred_score': 'xgb_raw'})
+        xgb_df['xgb_score'] = normalize_scores(xgb_df, 'xgb_raw')
+        preds.append(xgb_df[['user_id', 'article_id', 'xgb_score']])
     else:
         logger.warning("XGBoost predictions not found!")
         
@@ -70,10 +92,19 @@ def ensemble():
         
     # Merge
     logger.info("Merging predictions...")
+    if not preds:
+        return
+        
     final_df = preds[0][['user_id', 'article_id']]
+    # We need to merge carefully
+    # Assuming all dfs have same row order? No. Merge on keys.
+    # To save memory, join one by one.
     
-    for df in preds:
-        final_df = final_df.merge(df, on=['user_id', 'article_id'], how='left')
+    for i, df in enumerate(preds):
+        if i == 0:
+            final_df = df
+        else:
+            final_df = final_df.merge(df, on=['user_id', 'article_id'], how='outer')
         
     # Weighted Avg
     # Check what columns we have

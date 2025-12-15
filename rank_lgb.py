@@ -58,6 +58,9 @@ def train_lgb(feature_pkl, mode='valid', n_splits=5):
     dummy_cols = ['user_id', 'article_id', 'label', 'pred_score', 'dt', 'last_click_ts', 'created_at_ts']
     feature_cols = [c for c in df.columns if c not in dummy_cols]
     
+    # LambdaRank REQUIREMENT: Data must be sorted by user_id (query)
+    df = df.sort_values('user_id').reset_index(drop=True)
+    
     logger.info(f"Features: {feature_cols}")
     
     if mode == 'valid':
@@ -66,12 +69,16 @@ def train_lgb(feature_pkl, mode='valid', n_splits=5):
         pass
         
     # Model Params
+    # Model Params (Optimized for LambdaRank)
+    # Model Params (Optimized for LambdaRank)
     params = {
         'boosting_type': 'gbdt',
-        'objective': 'binary',
-        'metric': 'auc',
-        'learning_rate': 0.1,
-        'num_leaves': 31,
+        'objective': 'lambdarank',
+        'metric': 'map',
+        'eval_at': [5],
+        'learning_rate': 0.05,
+        'num_leaves': 63,
+        'max_depth': 7,
         'feature_fraction': 0.8,
         'bagging_fraction': 0.8,
         'n_jobs': -1,
@@ -100,8 +107,15 @@ def train_lgb(feature_pkl, mode='valid', n_splits=5):
             x_val = df.iloc[val_idx][feature_cols]
             y_val = df.iloc[val_idx]['label']
             
-            lgb_train = lgb.Dataset(x_train, y_train)
-            lgb_val = lgb.Dataset(x_val, y_val, reference=lgb_train)
+            # LambdaRank needs group info (query sizes)
+            # We must ensure data is sorted by user_id
+            
+            # Get group counts
+            train_group = df.iloc[train_idx].groupby('user_id', sort=False).size().values
+            val_group = df.iloc[val_idx].groupby('user_id', sort=False).size().values
+            
+            lgb_train = lgb.Dataset(x_train, y_train, group=train_group)
+            lgb_val = lgb.Dataset(x_val, y_val, reference=lgb_train, group=val_group)
             
             gbm = lgb.train(params,
                             lgb_train,
@@ -136,6 +150,9 @@ def train_lgb(feature_pkl, mode='valid', n_splits=5):
              exit(1)
         
         train_df = pd.read_pickle(train_pkl)
+        # LambdaRank REQUIREMENT: Data must be sorted by user_id
+        train_df = train_df.sort_values('user_id').reset_index(drop=True)
+        
         test_df = df # The passed arg is online features
         
         test_preds = np.zeros(len(test_df))
@@ -148,8 +165,12 @@ def train_lgb(feature_pkl, mode='valid', n_splits=5):
             x_val = train_df.iloc[val_idx][feature_cols] # Still use validation to stop
             y_val = train_df.iloc[val_idx]['label']
             
-            lgb_train = lgb.Dataset(x_train, y_train)
-            lgb_val = lgb.Dataset(x_val, y_val, reference=lgb_train)
+            # LambdaRank Setup
+            train_group = train_df.iloc[train_idx].groupby('user_id', sort=False).size().values
+            val_group = train_df.iloc[val_idx].groupby('user_id', sort=False).size().values
+            
+            lgb_train = lgb.Dataset(x_train, y_train, group=train_group)
+            lgb_val = lgb.Dataset(x_val, y_val, reference=lgb_train, group=val_group)
             
             gbm = lgb.train(params,
                             lgb_train,

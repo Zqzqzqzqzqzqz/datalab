@@ -60,6 +60,15 @@ def generate_features(recall_pkl, click_pkl, query_pkl, articles_df, articles_em
     if len(sample_df) == 0:
         return sample_df
         
+    # Ensure sorted by user for LambdaRank later
+    # Sort by user_id (asc) and label (desc) ? No, LambdaRank needs sorted by qid.
+    # GroupKFold preserves group order? No, it just splits groups.
+    # But when we create lgb.Dataset with 'group', the data MUST be sequentially sorted by group.
+    
+    sample_df = sample_df.sort_values(['user_id', 'recall_score'], ascending=[True, False]).reset_index(drop=True)
+    
+    logger.info("Sorted samples by user_id for LambdaRank compatibility.")
+        
     # 2. Join User History Features
     # Simple features: User click count
     logger.info("Adding User Stats...")
@@ -169,6 +178,50 @@ def generate_features(recall_pkl, click_pkl, query_pkl, articles_df, articles_em
             sim_scores.append(float(np.dot(u_vec, i_vec)))
             
     sample_df['emb_sim_score'] = sim_scores
+
+    # Feature: Category Match
+    # Check if the candidate article's category appears in user's history
+    # We need user history categories.
+    logger.info("Adding Category Match Feature...")
+    
+    # 1. Get user history categories set
+    # click_df has 'click_article_id'. We need to map to categories.
+    # We can join click_df with articles_df.
+    
+    # Efficient: create map article_id -> cat_id
+    art_cat_map = dict(zip(articles_df['article_id'], articles_df['category_id']))
+    
+    # 2. Add cat_id to click_df
+    # We only need it for the group loop logic or pre-compute
+    # Let's do pre-compute: dict {user: set(cat_ids)}
+    
+    # This might be slow if using pure python loop. 
+    # Pandas way:
+    # Map article_id in click_df to cat_id
+    click_df['cat_id'] = click_df['click_article_id'].map(art_cat_map)
+    user_cat_hist = click_df.groupby('user_id')['cat_id'].apply(set).to_dict()
+    
+    # 3. Apply to sample_df
+    # sample_df has 'user_id' and 'category_id' (from article features join)
+    
+    # sample_df['category_match'] = sample_df.apply(lambda x: 1 if x['category_id'] in user_cat_hist.get(x['user_id'], set()) else 0, axis=1)
+    
+    # Vectorized optimized:
+    # It's hard to vectorize "is in set" with different sets.
+    # List comprehension is fastest.
+    
+    u_ids = sample_df['user_id'].values
+    c_ids = sample_df['category_id'].values
+    matches = []
+    
+    for u, c in tqdm(zip(u_ids, c_ids), total=len(u_ids)):
+        hist = user_cat_hist.get(u)
+        if hist and c in hist:
+            matches.append(1)
+        else:
+            matches.append(0)
+            
+    sample_df['category_match'] = matches
 
     # Cleanup
     del click_df, query_df, emb_dict, emb_matrix

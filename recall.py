@@ -77,14 +77,15 @@ if __name__ == "__main__":
     # Load Recalls
     RECALLS = {
         'itemcf': os.path.join(BASE_DIR, 'itemcf_recall.pkl'),
-        'binetwork': os.path.join(BASE_DIR, 'binetwork_recall.pkl'),
-        'w2v': os.path.join(BASE_DIR, 'w2v_recall.pkl')
+        'w2v': os.path.join(BASE_DIR, 'w2v_recall.pkl'),
+        'hot': os.path.join(BASE_DIR, 'hot_recall.pkl')
     }
     
+    # Weights optimization
     WEIGHTS = {
-        'itemcf': 1.0,
-        'binetwork': 1.0,
-        'w2v': 0.1
+        'itemcf': 0.5,
+        'w2v': 0.3,
+        'hot': 0.2
     }
     
     loaded_dicts = {}

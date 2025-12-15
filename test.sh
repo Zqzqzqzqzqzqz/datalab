@@ -13,8 +13,8 @@ python data.py --mode $MODE
 
 # 2. Recall
 python recall_itemcf.py --mode $MODE
-python recall_binetwork.py --mode $MODE
 python recall_w2v.py --mode $MODE
+python recall_hot.py --mode $MODE
 
 # 3. Merge
 python recall.py --mode $MODE
