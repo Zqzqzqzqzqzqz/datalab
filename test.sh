@@ -21,6 +21,10 @@ python recall.py --mode $MODE
 
 # 4. Features
 python rank_feature.py --mode $MODE
+if [ "$MODE" = "test" ]; then
+    echo "Generating offline features for training consistency..."
+    python rank_feature.py --mode valid
+fi
 
 # 5. Ranker
 python rank_lgb.py --mode $MODE
